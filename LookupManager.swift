@@ -27,10 +27,14 @@ class LookupManager {
         }
     }
     
-    // Example GTIN lookup (placeholder)
-    private func lookupGTIN(_ gtin: String, completion: @escaping (String) -> Void) {
-        // In a real app, you’d call GS1 or a product API here
-        completion("Product info for GTIN: \(gtin)\n(lookup not implemented yet)")
+    // GTIN lookup
+   private func lookupGTIN(_ gtin: String, completion: @escaping (String) -> Void) {
+    let gtinLookup = GTINLookupManager()
+    gtinLookup.fetchProductInfo(gtin: gtin) { result in
+        completion(result)
+    }
+}
+
     }
     
     // Example tracking fetch (simplified)
