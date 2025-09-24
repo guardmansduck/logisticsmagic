@@ -19,10 +19,8 @@ struct ParsedCode {
 class CodeParser {
     
     func parseCode(_ code: String) -> ParsedCode {
-        // Remove spaces just in case
         let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        // Example logic to detect code type
         if isGTIN(trimmed) {
             return ParsedCode(type: .gtin, rawValue: trimmed, gtin: trimmed)
         } else if isSSCC(trimmed) {
@@ -41,24 +39,20 @@ class CodeParser {
     }
     
     private func isSSCC(_ code: String) -> Bool {
-        // SSCCs are 18 digits, start with packaging indicator
         return code.count == 18 && code.allSatisfy({ $0.isNumber })
     }
     
     private func parseSSCC(_ code: String) -> (String, String) {
-        // GTIN (positions 2-14) and serial (positions 15-18)
         let gtin = String(code[code.index(code.startIndex, offsetBy: 1)...code.index(code.startIndex, offsetBy: 13)])
         let serial = String(code[code.index(code.startIndex, offsetBy: 14)...code.index(code.startIndex, offsetBy: 17)])
         return (gtin, serial)
     }
     
     private func isTrackingNumber(_ code: String) -> Bool {
-        // Simple heuristic: mix of letters and numbers, common lengths 10-22
         return code.count >= 10 && code.count <= 22
     }
     
     private func detectCarrier(_ code: String) -> String? {
-        // Simple rules for major carriers (UPS/FedEx/USPS/DHL)
         if code.starts(with: "1Z") { return "UPS" }
         if code.count == 12 && code.allSatisfy({ $0.isNumber }) { return "FedEx" }
         if code.count == 22 && code.allSatisfy({ $0.isNumber }) { return "USPS" }
