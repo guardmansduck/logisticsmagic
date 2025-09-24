@@ -3,6 +3,8 @@ import AVFoundation
 
 struct ContentView: View {
     @StateObject private var scanner = CameraScanner()
+    @StateObject private var historyManager = ScanHistoryManager()
+    
     @State private var parsedCode: ParsedCode?
     @State private var lookupResult: String = "Scan a label to see info"
     
@@ -12,7 +14,7 @@ struct ContentView: View {
             
             VStack(spacing: 20) {
                 
-                // Camera Preview Placeholder
+                // Camera Preview
                 CameraPreview(session: scanner.session)
                     .frame(height: 300)
                     .cornerRadius(15)
@@ -31,7 +33,7 @@ struct ContentView: View {
                         .cornerRadius(10)
                 }
                 
-                // Display Scanned Code
+                // Display Scanned Code and Lookup
                 if let code = parsedCode {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Scanned Code:")
@@ -43,10 +45,9 @@ struct ContentView: View {
                         Text("Type: \(String(describing: code.type))")
                             .foregroundColor(.white)
                         
-                        // Lookup Result
                         Text(lookupResult)
                             .foregroundColor(.white)
-                            .padding(.top, 10)
+                            .padding(.top, 5)
                     }
                     .padding()
                     .background(Color.gray.opacity(0.2))
@@ -59,7 +60,40 @@ struct ContentView: View {
                         .cornerRadius(10)
                 }
                 
+                // Scan History List
+                Text("Scan History")
+                    .font(.headline)
+                    .foregroundColor(.yellow)
+                    .padding(.top, 10)
+                
+                List(historyManager.history) { entry in
+                    VStack(alignment: .leading) {
+                        Text(entry.rawValue)
+                            .foregroundColor(.white)
+                        Text(entry.lookupResult)
+                            .foregroundColor(.yellow)
+                        Text(entry.date, style: .date)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(5)
+                    .listRowBackground(Color.black)
+                }
+                .listStyle(PlainListStyle())
+                
                 Spacer()
+                
+                // Clear History Button
+                Button(action: {
+                    historyManager.clearHistory()
+                }) {
+                    Text("Clear History")
+                        .foregroundColor(.black)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.red)
+                        .cornerRadius(10)
+                }
+                
             }
             .padding()
         }
@@ -74,6 +108,11 @@ struct ContentView: View {
             lookup.lookupCode(parsed) { result in
                 DispatchQueue.main.async {
                     lookupResult = result
+                    
+                    // Add to history
+                    historyManager.addEntry(rawValue: parsed.rawValue,
+                                            type: String(describing: parsed.type),
+                                            lookupResult: result)
                 }
             }
         }
