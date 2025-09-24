@@ -28,13 +28,11 @@ class LookupManager {
     }
     
     // GTIN lookup
-   private func lookupGTIN(_ gtin: String, completion: @escaping (String) -> Void) {
-    let gtinLookup = GTINLookupManager()
-    gtinLookup.fetchProductInfo(gtin: gtin) { result in
-        completion(result)
-    }
-}
-
+    private func lookupGTIN(_ gtin: String, completion: @escaping (String) -> Void) {
+        let gtinLookup = GTINLookupManager()
+        gtinLookup.fetchProductInfo(gtin: gtin) { result in
+            completion(result)
+        }
     }
     
     // Example tracking fetch (simplified)
