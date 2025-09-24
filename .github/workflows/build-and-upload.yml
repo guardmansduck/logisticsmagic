@@ -1,0 +1,173 @@
+name: Build and Upload iOS App
+
+on:
+  workflow_dispatch:
+    inputs:
+      scheme:
+        description: 'Select Xcode scheme'
+        required: true
+        default: 'YourApp'
+      environment:
+        description: 'Select environment'
+        required: true
+        default: 'AppStore'
+        type: choice
+        options:
+          - AppStore
+          - TestFlight
+      upload_to_appstore:
+        description: 'Upload to App Store Connect?'
+        required: true
+        default: 'true'
+        type: boolean
+      generate_ipa:
+        description: 'Generate downloadable IPA?'
+        required: true
+        default: 'true'
+        type: boolean
+      release_notes_file:
+        description: 'Path to release notes file in repo (optional)'
+        required: false
+        default: ''
+
+jobs:
+  build-and-upload:
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      # 1️⃣ Checkout repository
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      # 2️⃣ Remove Guide folder
+      - name: Remove Guide folder
+        run: |
+          if [ -d "./Guide" ]; then
+            echo "Removing Guide folder from build..."
+            rm -rf ./Guide
+          fi
+
+      # 3️⃣ Install Ruby & Fastlane
+      - name: Install Ruby & Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+      - run: gem install fastlane
+
+      # 4️⃣ Set up Xcode
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v2
+        with:
+          xcode-version: '15.2'
+
+      # 5️⃣ Install Swift packages
+      - name: Install Swift Packages
+        run: swift package resolve
+
+      # 6️⃣ Increment Build Number and Commit
+      - name: Increment Build Number and Commit
+        run: |
+          BUILD_NUMBER=$(date +%Y%m%d%H%M) # timestamp for uniqueness
+          echo "Build number: $BUILD_NUMBER"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" YourApp/Info.plist
+
+          # Configure git for auto-commit
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Commit if changed
+          if git diff --quiet; then
+            echo "No changes to commit."
+          else
+            git add YourApp/Info.plist
+            git commit -m "Auto-update build number to $BUILD_NUMBER"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+
+      # 7️⃣ Build and archive
+      - name: Build and Archive App
+        run: |
+          xcodebuild -workspace YourApp.xcworkspace \
+                     -scheme ${{ github.event.inputs.scheme }} \
+                     -sdk iphoneos \
+                     -configuration Release \
+                     -archivePath $PWD/build/${{ github.event.inputs.scheme }}.xcarchive archive
+
+      # 8️⃣ Generate dynamic ExportOptions.plist
+      - name: Generate ExportOptions.plist
+        run: |
+          ENVIRONMENT=${{ github.event.inputs.environment }}
+          PLIST_PATH="$PWD/build/ExportOptions.plist"
+          echo "Generating ExportOptions.plist for $ENVIRONMENT environment..."
+          METHOD="app-store"
+          if [ "$ENVIRONMENT" == "TestFlight" ]; then
+            METHOD="app-store"
+          fi
+          cat <<EOF > $PLIST_PATH
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>compileBitcode</key>
+  <false/>
+  <key>method</key>
+  <string>${METHOD}</string>
+  <key>signingStyle</key>
+  <string>manual</string>
+  <key>stripSwiftSymbols</key>
+  <true/>
+  <key>uploadSymbols</key>
+  <true/>
+  <key>uploadBitcode</key>
+  <true/>
+</dict>
+</plist>
+EOF
+
+      # 9️⃣ Export IPA
+      - name: Export .ipa
+        if: ${{ github.event.inputs.generate_ipa == 'true' }}
+        run: |
+          xcodebuild -exportArchive \
+                     -archivePath $PWD/build/${{ github.event.inputs.scheme }}.xcarchive \
+                     -exportPath $PWD/build \
+                     -exportOptionsPlist $PWD/build/ExportOptions.plist
+
+      # 🔟 Upload IPA as artifact
+      - name: Upload .ipa Artifact
+        if: ${{ github.event.inputs.generate_ipa == 'true' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: iOS-App
+          path: build/${{ github.event.inputs.scheme }}.ipa
+
+      # 1️⃣1️⃣ Upload to App Store Connect
+      - name: Upload to App Store Connect
+        if: ${{ github.event.inputs.upload_to_appstore == 'true' }}
+        env:
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        run: |
+          echo $APP_STORE_CONNECT_API_KEY | base64 --decode > AuthKey.p8
+
+          # Prepare release notes if file provided
+          RELEASE_NOTES=""
+          if [ ! -z "${{ github.event.inputs.release_notes_file }}" ] && [ -f "${{ github.event.inputs.release_notes_file }}" ]; then
+            RELEASE_NOTES=$(cat "${{ github.event.inputs.release_notes_file }}")
+          fi
+
+          fastlane deliver \
+            --ipa build/${{ github.event.inputs.scheme }}.ipa \
+            --api_key_path AuthKey.p8 \
+            --api_key_id $APP_STORE_CONNECT_KEY_ID \
+            --issuer_id $APP_STORE_CONNECT_ISSUER_ID \
+            --skip_screenshots \
+            --skip_metadata \
+            --submit_for_review \
+            $(if [ ! -z "$RELEASE_NOTES" ]; then echo "--release_notes \"$RELEASE_NOTES\""; fi)
