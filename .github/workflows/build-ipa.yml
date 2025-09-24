@@ -16,9 +16,6 @@ on:
 jobs:
   build-ipa:
     runs-on: macos-latest
-    defaults:
-      run:
-        shell: bash
 
     steps:
       # 1️⃣ Checkout repository
