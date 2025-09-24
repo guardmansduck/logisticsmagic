@@ -15,17 +15,13 @@ struct ContentView: View {
             
             VStack(spacing: 20) {
                 
-                // Camera Preview
                 CameraPreview(session: scanner.session)
                     .frame(height: 300)
                     .cornerRadius(15)
                     .overlay(RoundedRectangle(cornerRadius: 15)
                                 .stroke(Color.yellow, lineWidth: 3))
                 
-                // Scan Button
-                Button(action: {
-                    scanner.startScanning()
-                }) {
+                Button(action: { scanner.startScanning() }) {
                     Text("Start Scan")
                         .foregroundColor(.black)
                         .padding()
@@ -34,7 +30,6 @@ struct ContentView: View {
                         .cornerRadius(10)
                 }
                 
-                // Display Scanned Code & Product
                 if let code = parsedCode {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Scanned Code:")
@@ -42,14 +37,12 @@ struct ContentView: View {
                             .foregroundColor(.yellow)
                         Text(code.rawValue)
                             .foregroundColor(.white)
-                        
                         Text("Type: \(String(describing: code.type))")
                             .foregroundColor(.white)
                         
                         if let urlString = productImageUrl, let url = URL(string: urlString) {
                             AsyncImage(url: url) { image in
-                                image
-                                    .resizable()
+                                image.resizable()
                                     .scaledToFit()
                                     .frame(height: 150)
                                     .cornerRadius(10)
@@ -76,7 +69,6 @@ struct ContentView: View {
                         .cornerRadius(10)
                 }
                 
-                // Scan History
                 Text("Scan History")
                     .font(.headline)
                     .foregroundColor(.yellow)
@@ -84,22 +76,15 @@ struct ContentView: View {
                 
                 List(historyManager.history) { entry in
                     VStack(alignment: .leading) {
-                        Text(entry.rawValue)
-                            .foregroundColor(.white)
-                        Text(entry.lookupResult)
-                            .foregroundColor(.yellow)
-                        Text(entry.date, style: .date)
-                            .foregroundColor(.gray)
-                    }
-                    .padding(5)
+                        Text(entry.rawValue).foregroundColor(.white)
+                        Text(entry.lookupResult).foregroundColor(.yellow)
+                        Text(entry.date, style: .date).foregroundColor(.gray)
+                    }.padding(5)
                     .listRowBackground(Color.black)
                 }
                 .listStyle(PlainListStyle())
                 
-                // Clear History
-                Button(action: {
-                    historyManager.clearHistory()
-                }) {
+                Button(action: { historyManager.clearHistory() }) {
                     Text("Clear History")
                         .foregroundColor(.black)
                         .padding()
@@ -117,43 +102,4 @@ struct ContentView: View {
             
             let parser = CodeParser()
             let parsed = parser.parseCode(code)
-            parsedCode = parsed
-            
-            let lookup = LookupManager()
-            
-            switch parsed.type {
-            case .gtin:
-                lookup.lookupGTIN(parsed.gtin ?? "") { info in
-                    DispatchQueue.main.async {
-                        if let info = info {
-                            lookupResult = "\(info.product_name ?? "Unknown") \(info.brand ?? "")\n\(info.description ?? "")"
-                            productImageUrl = info.image_url
-                        } else {
-                            lookupResult = "Product not found in public database"
-                            productImageUrl = nil
-                        }
-                        historyManager.addEntry(rawValue: parsed.rawValue,
-                                                type: String(describing: parsed.type),
-                                                lookupResult: lookupResult)
-                    }
-                }
-            default:
-                lookup.lookupCode(parsed) { result in
-                    DispatchQueue.main.async {
-                        lookupResult = result
-                        productImageUrl = nil
-                        historyManager.addEntry(rawValue: parsed.rawValue,
-                                                type: String(describing: parsed.type),
-                                                lookupResult: lookupResult)
-                    }
-                }
-            }
-        }
-    }
-}
-
-struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        ContentView()
-    }
-}
+            parsed
