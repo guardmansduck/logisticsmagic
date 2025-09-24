@@ -5,7 +5,14 @@ class LookupManager {
     func lookupCode(_ parsed: ParsedCode, completion: @escaping (String) -> Void) {
         switch parsed.type {
         case .gtin:
-            lookupGTIN(parsed.gtin ?? "", completion: completion)
+            lookupGTIN(parsed.gtin ?? "") { info in
+                if let info = info {
+                    let result = "\(info.product_name ?? "Unknown") \(info.brand ?? "")\n\(info.description ?? "")"
+                    completion(result)
+                } else {
+                    completion("Product not found in public database")
+                }
+            }
             
         case .sscc:
             let info = """
@@ -28,14 +35,14 @@ class LookupManager {
     }
     
     // GTIN lookup
-    private func lookupGTIN(_ gtin: String, completion: @escaping (String) -> Void) {
+    private func lookupGTIN(_ gtin: String, completion: @escaping (ProductInfo?) -> Void) {
         let gtinLookup = GTINLookupManager()
-        gtinLookup.fetchProductInfo(gtin: gtin) { result in
-            completion(result)
+        gtinLookup.fetchProductInfo(gtin: gtin) { info in
+            completion(info)
         }
     }
     
-    // Example tracking fetch (simplified)
+    // Tracking fetch (simplified)
     private func fetchTrackingInfo(carrier: String, code: String, completion: @escaping (String) -> Void) {
         var urlString: String
         
@@ -67,8 +74,6 @@ class LookupManager {
                 return
             }
             
-            // For now, just return the raw HTML length
-            // Later we can parse specific fields like "Delivered", "In Transit", etc.
             completion("Fetched \(carrier) tracking page (size: \(html.count) chars)")
         }
         task.resume()
