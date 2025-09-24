@@ -7,10 +7,11 @@ struct ContentView: View {
     
     @State private var parsedCode: ParsedCode?
     @State private var lookupResult: String = "Scan a label to see info"
+    @State private var productImageUrl: String?
     
     var body: some View {
         ZStack {
-            Color.black.edgesIgnoringSafeArea(.all) // Background
+            Color.black.edgesIgnoringSafeArea(.all)
             
             VStack(spacing: 20) {
                 
@@ -33,7 +34,7 @@ struct ContentView: View {
                         .cornerRadius(10)
                 }
                 
-                // Display Scanned Code and Lookup
+                // Display Scanned Code & Product
                 if let code = parsedCode {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Scanned Code:")
@@ -44,6 +45,21 @@ struct ContentView: View {
                         
                         Text("Type: \(String(describing: code.type))")
                             .foregroundColor(.white)
+                        
+                        if let urlString = productImageUrl, let url = URL(string: urlString) {
+                            AsyncImage(url: url) { image in
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(height: 150)
+                                    .cornerRadius(10)
+                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.yellow, lineWidth: 2))
+                            } placeholder: {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .yellow))
+                                    .frame(height: 150)
+                            }
+                        }
                         
                         Text(lookupResult)
                             .foregroundColor(.white)
@@ -60,7 +76,7 @@ struct ContentView: View {
                         .cornerRadius(10)
                 }
                 
-                // Scan History List
+                // Scan History
                 Text("Scan History")
                     .font(.headline)
                     .foregroundColor(.yellow)
@@ -80,9 +96,7 @@ struct ContentView: View {
                 }
                 .listStyle(PlainListStyle())
                 
-                Spacer()
-                
-                // Clear History Button
+                // Clear History
                 Button(action: {
                     historyManager.clearHistory()
                 }) {
@@ -94,6 +108,7 @@ struct ContentView: View {
                         .cornerRadius(10)
                 }
                 
+                Spacer()
             }
             .padding()
         }
@@ -105,14 +120,32 @@ struct ContentView: View {
             parsedCode = parsed
             
             let lookup = LookupManager()
-            lookup.lookupCode(parsed) { result in
-                DispatchQueue.main.async {
-                    lookupResult = result
-                    
-                    // Add to history
-                    historyManager.addEntry(rawValue: parsed.rawValue,
-                                            type: String(describing: parsed.type),
-                                            lookupResult: result)
+            
+            switch parsed.type {
+            case .gtin:
+                lookup.lookupGTIN(parsed.gtin ?? "") { info in
+                    DispatchQueue.main.async {
+                        if let info = info {
+                            lookupResult = "\(info.product_name ?? "Unknown") \(info.brand ?? "")\n\(info.description ?? "")"
+                            productImageUrl = info.image_url
+                        } else {
+                            lookupResult = "Product not found in public database"
+                            productImageUrl = nil
+                        }
+                        historyManager.addEntry(rawValue: parsed.rawValue,
+                                                type: String(describing: parsed.type),
+                                                lookupResult: lookupResult)
+                    }
+                }
+            default:
+                lookup.lookupCode(parsed) { result in
+                    DispatchQueue.main.async {
+                        lookupResult = result
+                        productImageUrl = nil
+                        historyManager.addEntry(rawValue: parsed.rawValue,
+                                                type: String(describing: parsed.type),
+                                                lookupResult: lookupResult)
+                    }
                 }
             }
         }
