@@ -19,7 +19,7 @@ class ScanHistoryManager: ObservableObject {
     
     func addEntry(rawValue: String, type: String, lookupResult: String) {
         let entry = ScanEntry(rawValue: rawValue, type: type, date: Date(), lookupResult: lookupResult)
-        history.insert(entry, at: 0) // newest first
+        history.insert(entry, at: 0)
         saveHistory()
     }
     
@@ -27,8 +27,6 @@ class ScanHistoryManager: ObservableObject {
         history.removeAll()
         saveHistory()
     }
-    
-    // MARK: - Persistence
     
     private func saveHistory() {
         if let encoded = try? JSONEncoder().encode(history) {
