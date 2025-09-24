@@ -5,12 +5,13 @@ class LookupManager {
     func lookupCode(_ parsed: ParsedCode, completion: @escaping (String) -> Void) {
         switch parsed.type {
         case .gtin:
-            lookupGTIN(parsed.gtin ?? "") { info in
+            let multiDB = MultiDBLookupManager()
+            multiDB.fetchProduct(gtin: parsed.gtin ?? "") { info in
                 if let info = info {
                     let result = "\(info.product_name ?? "Unknown") \(info.brand ?? "")\n\(info.description ?? "")"
                     completion(result)
                 } else {
-                    completion("Product not found in public database")
+                    completion("Product not found in any public database")
                 }
             }
             
@@ -31,14 +32,6 @@ class LookupManager {
             
         case .unknown:
             completion("Unrecognized code: \(parsed.rawValue)")
-        }
-    }
-    
-    // GTIN lookup
-    private func lookupGTIN(_ gtin: String, completion: @escaping (ProductInfo?) -> Void) {
-        let gtinLookup = GTINLookupManager()
-        gtinLookup.fetchProductInfo(gtin: gtin) { info in
-            completion(info)
         }
     }
     
@@ -63,7 +56,7 @@ class LookupManager {
             return
         }
         
-        let task = URLSession.shared.dataTask(with: url) { data, response, error in
+        let task = URLSession.shared.dataTask(with: url) { data, _, error in
             if let error = error {
                 completion("Error fetching tracking info: \(error.localizedDescription)")
                 return
