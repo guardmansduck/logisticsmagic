@@ -1,2 +1,2 @@
-Add an "|" on the line below to push an update if there are no changes that are recognizable to the build-and-release.yml workflow that need to be commited.
+Add an "|" on the line below to push an update if there are no changes that are recognizable to the build-and-upload.yml workflow that need to be commited.
 |
