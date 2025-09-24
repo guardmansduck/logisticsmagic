@@ -15,12 +15,14 @@ struct ContentView: View {
             
             VStack(spacing: 20) {
                 
+                // Camera Preview
                 CameraPreview(session: scanner.session)
                     .frame(height: 300)
                     .cornerRadius(15)
                     .overlay(RoundedRectangle(cornerRadius: 15)
                                 .stroke(Color.yellow, lineWidth: 3))
                 
+                // Scan Button
                 Button(action: { scanner.startScanning() }) {
                     Text("Start Scan")
                         .foregroundColor(.black)
@@ -30,6 +32,7 @@ struct ContentView: View {
                         .cornerRadius(10)
                 }
                 
+                // Display Scanned Code & Product
                 if let code = parsedCode {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Scanned Code:")
@@ -69,6 +72,7 @@ struct ContentView: View {
                         .cornerRadius(10)
                 }
                 
+                // Scan History
                 Text("Scan History")
                     .font(.headline)
                     .foregroundColor(.yellow)
@@ -79,11 +83,13 @@ struct ContentView: View {
                         Text(entry.rawValue).foregroundColor(.white)
                         Text(entry.lookupResult).foregroundColor(.yellow)
                         Text(entry.date, style: .date).foregroundColor(.gray)
-                    }.padding(5)
+                    }
+                    .padding(5)
                     .listRowBackground(Color.black)
                 }
                 .listStyle(PlainListStyle())
                 
+                // Clear History
                 Button(action: { historyManager.clearHistory() }) {
                     Text("Clear History")
                         .foregroundColor(.black)
@@ -102,4 +108,44 @@ struct ContentView: View {
             
             let parser = CodeParser()
             let parsed = parser.parseCode(code)
-            parsed
+            parsedCode = parsed
+            
+            let lookup = LookupManager()
+            
+            switch parsed.type {
+            case .gtin:
+                let multiDB = MultiDBLookupManager()
+                multiDB.fetchProduct(gtin: parsed.gtin ?? "") { info in
+                    DispatchQueue.main.async {
+                        if let info = info {
+                            lookupResult = "\(info.product_name ?? "Unknown") \(info.brand ?? "")\n\(info.description ?? "")"
+                            productImageUrl = info.image_url
+                        } else {
+                            lookupResult = "Product not found in any public database"
+                            productImageUrl = nil
+                        }
+                        historyManager.addEntry(rawValue: parsed.rawValue,
+                                                type: String(describing: parsed.type),
+                                                lookupResult: lookupResult)
+                    }
+                }
+            default:
+                lookup.lookupCode(parsed) { result in
+                    DispatchQueue.main.async {
+                        lookupResult = result
+                        productImageUrl = nil
+                        historyManager.addEntry(rawValue: parsed.rawValue,
+                                                type: String(describing: parsed.type),
+                                                lookupResult: lookupResult)
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+    }
+}
