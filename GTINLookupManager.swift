@@ -4,50 +4,50 @@ struct ProductInfo: Codable {
     let product_name: String?
     let brand: String?
     let description: String?
+    let image_url: String?
 }
 
 class GTINLookupManager {
     
-    func fetchProductInfo(gtin: String, completion: @escaping (String) -> Void) {
-        // Public API example (no API key)
+    func fetchProductInfo(gtin: String, completion: @escaping (ProductInfo?) -> Void) {
         let urlString = "https://world.openfoodfacts.org/api/v0/product/\(gtin).json"
         
         guard let url = URL(string: urlString) else {
-            completion("Invalid GTIN URL")
+            completion(nil)
             return
         }
         
         let task = URLSession.shared.dataTask(with: url) { data, response, error in
-            if let error = error {
-                completion("Error fetching product info: \(error.localizedDescription)")
+            if let _ = error {
+                completion(nil)
                 return
             }
             
             guard let data = data else {
-                completion("No data received")
+                completion(nil)
                 return
             }
             
             do {
                 let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
-                
                 if let status = json?["status"] as? Int, status == 1,
                    let product = json?["product"] as? [String: Any] {
                     
-                    let name = product["product_name"] as? String ?? "Unknown product"
-                    let brand = product["brands"] as? String ?? ""
-                    let desc = product["generic_name"] as? String ?? ""
+                    let name = product["product_name"] as? String
+                    let brand = product["brands"] as? String
+                    let desc = product["generic_name"] as? String
+                    let image = product["image_front_small_url"] as? String
                     
-                    var result = name
-                    if !brand.isEmpty { result += " (\(brand))" }
-                    if !desc.isEmpty { result += " - \(desc)" }
-                    
-                    completion(result)
+                    let info = ProductInfo(product_name: name,
+                                           brand: brand,
+                                           description: desc,
+                                           image_url: image)
+                    completion(info)
                 } else {
-                    completion("Product not found in public database")
+                    completion(nil)
                 }
             } catch {
-                completion("Error parsing product info: \(error.localizedDescription)")
+                completion(nil)
             }
         }
         task.resume()
