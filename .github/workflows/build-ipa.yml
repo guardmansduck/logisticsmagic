@@ -1,7 +1,6 @@
 # .github/workflows/build-unsigned-ipa.yml
 name: Build unsigned .ipa
 
-# Manual trigger so you can provide scheme/project/workspace if needed
 on:
   workflow_dispatch:
     inputs:
@@ -47,15 +46,21 @@ jobs:
           echo "EXPORT_NAME=${{ github.event.inputs.export_name }}" >> $GITHUB_ENV
 
       - name: Optional: Install CocoaPods (if Podfile exists)
-        if: ${{ env.PROJECT_PATH && (contains(ne(github.event.head_commit.message, ''), true) || true) }} # noop guard to allow conditional check inside script
         run: |
           set -e
+          # Check for Podfile in the provided project path or repo root and install if present
           if [ -f "${PROJECT_PATH}/Podfile" ] || [ -f "Podfile" ]; then
             echo "Podfile detected — installing CocoaPods dependencies"
-            sudo gem install cocoapods || true
-            cd "${PROJECT_PATH}" || true
+            # Try installing cocoapods; if gem install requires sudo on the runner it'll try but won't fail workflow unnecessarily
+            gem install cocoapods || true
+            if [ -d "${PROJECT_PATH}" ]; then
+              cd "${PROJECT_PATH}"
+            fi
             pod install || true
-            cd -
+            # return to repo root if we changed directories
+            if [ -d "${PROJECT_PATH}" ]; then
+              cd - >/dev/null || true
+            fi
           else
             echo "No Podfile found — skipping pod install"
           fi
@@ -116,12 +121,11 @@ jobs:
         id: find_app
         run: |
           set -e
-          # Try common build output locations
           BUILD_DIR="$(pwd)/build"
           echo "Searching for .app inside ${BUILD_DIR}"
           APP_PATH="$(find "${BUILD_DIR}" -type d -name "*.app" -print -quit || true)"
           if [ -z "${APP_PATH}" ]; then
-            # try the legacy Products directory
+            # try common Xcode Products output folder
             APP_PATH="$(find "$(pwd)/build/Release-iphoneos" -type d -name "*.app" -print -quit || true)" || true
           fi
           if [ -z "${APP_PATH}" ]; then
