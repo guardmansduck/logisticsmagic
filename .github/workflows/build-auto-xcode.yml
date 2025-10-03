@@ -6,11 +6,12 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install ruby gem for Xcodeproj
+      - name: Install xcodeproj gem
         run: gem install xcodeproj
 
       - name: Generate minimal Xcode project
@@ -19,21 +20,23 @@ jobs:
           PROJECT_NAME="MyApp"
           mkdir -p "$PROJECT_NAME"
           cd "$PROJECT_NAME"
+
           ruby -e "
             require 'xcodeproj'
+
+            # Create new project
             project = Xcodeproj::Project.new('${PROJECT_NAME}.xcodeproj')
+
+            # Create app target
             target = project.new_target(:application, '${PROJECT_NAME}', :ios, '17.0')
-            target.build_configurations.each do |config|
-              config.build_settings['INFOPLIST_FILE'] = '${PROJECT_NAME}/Info.plist'
-            end
-            main_group = project.main_group
-            Dir.glob('../*.swift').each do |f|
-              file_ref = main_group.new_file(f)
-              target.add_file_references([file_ref])
-            end
-            # create a basic Info.plist
+
+            # Ensure Info.plist directory exists
+            Dir.mkdir('${PROJECT_NAME}') unless Dir.exist?('${PROJECT_NAME}')
+
+            # Create minimal Info.plist
             plist_path = '${PROJECT_NAME}/Info.plist'
-            File.write(plist_path, \"\"\"<?xml version='1.0' encoding='UTF-8'?>
+            File.write(plist_path, <<~PLIST
+              <?xml version='1.0' encoding='UTF-8'?>
               <!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'>
               <plist version='1.0'>
               <dict>
@@ -50,7 +53,18 @@ jobs:
                   </dict>
                 </dict>
               </dict>
-              </plist>\"\"\")
+              </plist>
+            PLIST
+            )
+
+            # Add all .swift files from repo root to project
+            main_group = project.main_group
+            Dir.glob('../*.swift').each do |f|
+              file_ref = main_group.new_file(f)
+              target.add_file_references([file_ref])
+            end
+
+            # Save project
             project.save
           "
           cd ..
@@ -70,7 +84,7 @@ jobs:
                      CODE_SIGN_IDENTITY="" \
                      CODE_SIGNING_REQUIRED=NO
 
-      - name: Find .app
+      - name: Locate .app
         id: find_app
         run: |
           APP_PATH=$(find "$(pwd)/build" -type d -name "*.app" -print -quit)
@@ -90,6 +104,7 @@ jobs:
           (cd "$TMPDIR" && zip -qry "$IPA_NAME" Payload)
           mkdir -p artifacts
           mv "$TMPDIR/$IPA_NAME" artifacts/
+          echo "IPA ready at artifacts/$IPA_NAME"
 
       - name: Upload unsigned .ipa artifact
         uses: actions/upload-artifact@v4
