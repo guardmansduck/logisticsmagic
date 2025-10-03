@@ -1,15 +1,35 @@
-// swift-tools-version: 6.2
-// The swift-tools-version declares the minimum version of Swift required to build this package.
-
+// swift-tools-version:5.8
 import PackageDescription
 
 let package = Package(
     name: "MySwiftProject",
+    platforms: [
+        .macOS(.v13), // Adjust for macOS/iOS deployment if needed
+    ],
+    products: [
+        // This defines the executable your package builds
+        .executable(
+            name: "MySwiftProject",
+            targets: ["MySwiftProject"]
+        ),
+    ],
+    dependencies: [
+        // Example dependency: Swifter (HTTP server)
+        .package(url: "https://github.com/httpswift/swifter.git", from: "1.4.0"),
+        // You can add more dependencies here as needed
+    ],
     targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
         .executableTarget(
-            name: "MySwiftProject"
+            name: "MySwiftProject",
+            dependencies: [
+                "Swifter"
+            ],
+            path: "Sources"
+        ),
+        .testTarget(
+            name: "MySwiftProjectTests",
+            dependencies: ["MySwiftProject"],
+            path: "Tests"
         ),
     ]
 )
