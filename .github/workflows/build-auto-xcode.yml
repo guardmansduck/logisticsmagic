@@ -1,58 +1,56 @@
-# .github/workflows/build-auto-xcode.yml
 name: Build unsigned .ipa from raw Swift files
 
 on:
   workflow_dispatch:
-    inputs:
-      scheme:
-        description: 'Xcode scheme to build'
-        required: true
-        default: 'MyApp'
-      configuration:
-        description: 'Build configuration'
-        required: false
-        default: 'Release'
-      sdk:
-        description: 'SDK to build against'
-        required: false
-        default: 'iphoneos'
-      export_name:
-        description: 'Filename to use for produced .ipa (without extension)'
-        required: false
-        default: 'UnsignedApp'
 
 jobs:
   build:
     runs-on: macos-latest
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Create minimal Xcode project
+      - name: Install ruby gem for Xcodeproj
+        run: gem install xcodeproj
+
+      - name: Generate minimal Xcode project
         run: |
           set -euo pipefail
-          PROJECT_NAME="${{ github.event.inputs.scheme }}"
-          APP_DIR="MyApp"
-          mkdir -p "$APP_DIR"
-          cd "$APP_DIR"
-
-          # Create minimal project using xcodebuild
-          # Generate a dummy iOS app project using SwiftUI template
-          xcodebuild -create-xcframework \
-            -output /tmp/dummy.xcframework >/dev/null 2>&1 || true
-
-          # Use 'xcodeproj' gem to create project structure
-          gem install xcodeproj
+          PROJECT_NAME="MyApp"
+          mkdir -p "$PROJECT_NAME"
+          cd "$PROJECT_NAME"
           ruby -e "
             require 'xcodeproj'
             project = Xcodeproj::Project.new('${PROJECT_NAME}.xcodeproj')
             target = project.new_target(:application, '${PROJECT_NAME}', :ios, '17.0')
-            source_group = project.main_group.new_group('Sources')
-            Dir.glob('../*.swift').each do |file|
-              file_ref = project.main_group.new_file(file)
+            target.build_configurations.each do |config|
+              config.build_settings['INFOPLIST_FILE'] = '${PROJECT_NAME}/Info.plist'
+            end
+            main_group = project.main_group
+            Dir.glob('../*.swift').each do |f|
+              file_ref = main_group.new_file(f)
               target.add_file_references([file_ref])
             end
+            # create a basic Info.plist
+            plist_path = '${PROJECT_NAME}/Info.plist'
+            File.write(plist_path, \"\"\"<?xml version='1.0' encoding='UTF-8'?>
+              <!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'>
+              <plist version='1.0'>
+              <dict>
+                <key>CFBundleName</key><string>${PROJECT_NAME}</string>
+                <key>CFBundleIdentifier</key><string>com.example.${PROJECT_NAME}</string>
+                <key>CFBundleVersion</key><string>1</string>
+                <key>CFBundleShortVersionString</key><string>1.0</string>
+                <key>UILaunchStoryboardName</key><string>LaunchScreen</string>
+                <key>UIApplicationSceneManifest</key>
+                <dict>
+                  <key>UIApplicationSupportsMultipleScenes</key><false/>
+                  <key>UISceneConfigurations</key><dict>
+                    <key>UIWindowSceneSessionRoleApplication</key><array/>
+                  </dict>
+                </dict>
+              </dict>
+              </plist>\"\"\")
             project.save
           "
           cd ..
@@ -60,24 +58,22 @@ jobs:
       - name: Build .app unsigned
         run: |
           set -euo pipefail
+          PROJECT_NAME="MyApp"
           BUILD_DIR="$(pwd)/build"
-          SCHEME="${{ github.event.inputs.scheme }}"
-          CONFIG="${{ github.event.inputs.configuration }}"
-          SDK="${{ github.event.inputs.sdk }}"
-          xcodebuild -project "${SCHEME}.xcodeproj" \
-                     -scheme "${SCHEME}" \
-                     -configuration "${CONFIG}" \
-                     -sdk "${SDK}" \
+          xcodebuild -project "${PROJECT_NAME}/${PROJECT_NAME}.xcodeproj" \
+                     -scheme "${PROJECT_NAME}" \
+                     -configuration Release \
+                     -sdk iphoneos \
                      BUILD_DIR="$BUILD_DIR" \
                      clean build \
                      CODE_SIGNING_ALLOWED=NO \
                      CODE_SIGN_IDENTITY="" \
                      CODE_SIGNING_REQUIRED=NO
 
-      - name: Locate .app
+      - name: Find .app
         id: find_app
         run: |
-          APP_PATH=$(find "$(pwd)/build" -type d -name "*.app" -print -quit || true)
+          APP_PATH=$(find "$(pwd)/build" -type d -name "*.app" -print -quit)
           if [ -z "$APP_PATH" ]; then
             echo "::error ::.app not found"
             exit 1
@@ -87,14 +83,13 @@ jobs:
       - name: Package unsigned .ipa
         run: |
           APP_PATH="${{ steps.find_app.outputs.APP_PATH }}"
-          IPA_NAME="${{ github.event.inputs.export_name }}.ipa"
+          IPA_NAME="UnsignedApp.ipa"
           TMPDIR=$(mktemp -d)
           mkdir -p "$TMPDIR/Payload"
           cp -a "$APP_PATH" "$TMPDIR/Payload/"
           (cd "$TMPDIR" && zip -qry "$IPA_NAME" Payload)
           mkdir -p artifacts
           mv "$TMPDIR/$IPA_NAME" artifacts/
-          echo "IPA ready at artifacts/$IPA_NAME"
 
       - name: Upload unsigned .ipa artifact
         uses: actions/upload-artifact@v4
