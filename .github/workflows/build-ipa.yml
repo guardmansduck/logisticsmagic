@@ -8,14 +8,6 @@ on:
         description: 'Xcode scheme to build'
         required: true
         default: 'App'
-      project_path:
-        description: 'Path to project/workspace directory (relative to repo root)'
-        required: false
-        default: '.'
-      workspace_input:
-        description: 'If using an .xcworkspace, set workspace filename (e.g. MyApp.xcworkspace). Leave empty to auto-detect.'
-        required: false
-        default: ''
       configuration:
         description: 'Build configuration'
         required: false
@@ -31,115 +23,48 @@ on:
 
 jobs:
   build:
-    name: Build unsigned .ipa
     runs-on: macos-latest
-    env:
-      SCHEME: ${{ github.event.inputs.scheme }}
-      PROJECT_PATH: ${{ github.event.inputs.project_path }}
-      WORKSPACE_INPUT: ${{ github.event.inputs.workspace_input }}
-      CONFIGURATION: ${{ github.event.inputs.configuration }}
-      SDK: ${{ github.event.inputs.sdk }}
-      EXPORT_NAME: ${{ github.event.inputs.export_name }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Optional: install CocoaPods (if Podfile exists)
-        run: |
-          set -e
-          if [ -f "${PROJECT_PATH}/Podfile" ] || [ -f "Podfile" ]; then
-            echo "Podfile found; installing CocoaPods..."
-            gem install cocoapods || true
-            (cd "${PROJECT_PATH}" || true; pod install || true)
-          else
-            echo "No Podfile found; skipping CocoaPods."
-          fi
-
       - name: Build .app without code signing
         run: |
           set -euo pipefail
-          BUILD_DIR="$(pwd)/build"
-          echo "Using BUILD_DIR=${BUILD_DIR}"
-          if [ -n "${WORKSPACE_INPUT}" ]; then
-            echo "Building using workspace: ${WORKSPACE_INPUT}"
-            xcodebuild -workspace "${WORKSPACE_INPUT}" \
-                       -scheme "${SCHEME}" \
-                       -configuration "${CONFIGURATION}" \
-                       -sdk "${SDK}" \
-                       BUILD_DIR="${BUILD_DIR}" \
-                       clean build \
-                       CODE_SIGNING_ALLOWED=NO \
-                       CODE_SIGN_IDENTITY="" \
-                       CODE_SIGNING_REQUIRED=NO
-          else
-            found_ws="$(find "${PROJECT_PATH}" -maxdepth 2 -name '*.xcworkspace' -print -quit || true)"
-            if [ -n "${found_ws}" ]; then
-              echo "Auto-detected workspace: ${found_ws}"
-              xcodebuild -workspace "${found_ws}" \
-                         -scheme "${SCHEME}" \
-                         -configuration "${CONFIGURATION}" \
-                         -sdk "${SDK}" \
-                         BUILD_DIR="${BUILD_DIR}" \
-                         clean build \
-                         CODE_SIGNING_ALLOWED=NO \
-                         CODE_SIGN_IDENTITY="" \
-                         CODE_SIGNING_REQUIRED=NO
-            else
-              found_proj="$(find "${PROJECT_PATH}" -maxdepth 2 -name '*.xcodeproj' -print -quit || true)"
-              if [ -n "${found_proj}" ]; then
-                echo "Auto-detected project: ${found_proj}"
-                xcodebuild -project "${found_proj}" \
-                           -scheme "${SCHEME}" \
-                           -configuration "${CONFIGURATION}" \
-                           -sdk "${SDK}" \
-                           BUILD_DIR="${BUILD_DIR}" \
-                           clean build \
-                           CODE_SIGNING_ALLOWED=NO \
-                           CODE_SIGN_IDENTITY="" \
-                           CODE_SIGNING_REQUIRED=NO
-              else
-                echo "::error ::No .xcworkspace or .xcodeproj found in ${PROJECT_PATH}"
-                exit 1
-              fi
-            fi
-          fi
+          xcodebuild \
+            -scheme "${{ github.event.inputs.scheme }}" \
+            -configuration "${{ github.event.inputs.configuration }}" \
+            -sdk "${{ github.event.inputs.sdk }}" \
+            BUILD_DIR="$(pwd)/build" \
+            clean build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO
 
       - name: Find .app
         id: find_app
         run: |
-          set -e
-          BUILD_DIR="$(pwd)/build"
-          echo "Searching for .app in ${BUILD_DIR}"
-          APP_PATH="$(find "${BUILD_DIR}" -type d -name "*.app" -print -quit || true)"
-          if [ -z "${APP_PATH}" ]; then
-            APP_PATH="$(find "$(pwd)/build/Release-iphoneos" -type d -name "*.app" -print -quit || true)" || true
-          fi
-          if [ -z "${APP_PATH}" ]; then
-            echo "::error ::Could not locate .app in build output"
+          APP_PATH="$(find "$(pwd)/build" -type d -name "*.app" -print -quit || true)"
+          if [ -z "$APP_PATH" ]; then
+            echo "::error ::.app not found"
             exit 1
           fi
-          echo "Found app: ${APP_PATH}"
-          echo "APP_PATH=${APP_PATH}" >> $GITHUB_OUTPUT
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Package unsigned .ipa
         run: |
-          set -e
           APP_PATH="${{ steps.find_app.outputs.APP_PATH }}"
-          IPA_NAME="${EXPORT_NAME}.ipa"
+          IPA_NAME="${{ github.event.inputs.export_name }}.ipa"
           TMPDIR="$(mktemp -d)"
-          PAYLOAD="${TMPDIR}/Payload"
-          mkdir -p "${PAYLOAD}"
-          cp -a "${APP_PATH}" "${PAYLOAD}/"
-          pushd "${TMPDIR}" >/dev/null || true
-          /usr/bin/zip -qry "${IPA_NAME}" Payload
-          popd >/dev/null || true
-          mkdir -p ./artifacts
-          mv "${TMPDIR}/${IPA_NAME}" ./artifacts/
-          echo "IPA available at ./artifacts/${IPA_NAME}"
-          ls -lah ./artifacts
+          mkdir -p "$TMPDIR/Payload"
+          cp -a "$APP_PATH" "$TMPDIR/Payload/"
+          (cd "$TMPDIR" && zip -qry "$IPA_NAME" Payload)
+          mkdir -p artifacts
+          mv "$TMPDIR/$IPA_NAME" artifacts/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: unsigned-ipa
-          path: ./artifacts/*.ipa
+          path: artifacts/*.ipa
