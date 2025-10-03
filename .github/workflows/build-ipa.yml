@@ -1,0 +1,156 @@
+# .github/workflows/build-unsigned-ipa.yml
+name: Build unsigned .ipa
+
+# Manual trigger so you can provide scheme/project/workspace if needed
+on:
+  workflow_dispatch:
+    inputs:
+      scheme:
+        description: 'Xcode scheme to build'
+        required: true
+        default: 'App'
+      project_path:
+        description: 'Path to .xcodeproj or workspace directory (relative to repo root). If using workspace, set workspace file name in workspace_input.'
+        required: false
+        default: '.'
+      workspace_input:
+        description: 'If you use an .xcworkspace, provide the workspace filename (e.g. MyApp.xcworkspace). Leave empty to auto-detect or use .xcodeproj'
+        required: false
+        default: ''
+      configuration:
+        description: 'Build configuration'
+        required: false
+        default: 'Release'
+      sdk:
+        description: 'SDK to build against'
+        required: false
+        default: 'iphoneos'
+      export_name:
+        description: 'Filename to use for produced .ipa (without extension)'
+        required: false
+        default: 'UnsignedApp'
+
+jobs:
+  build-unsigned-ipa:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up environment variables from inputs
+        run: |
+          echo "SCHEME=${{ github.event.inputs.scheme }}" >> $GITHUB_ENV
+          echo "PROJECT_PATH=${{ github.event.inputs.project_path }}" >> $GITHUB_ENV
+          echo "WORKSPACE_INPUT=${{ github.event.inputs.workspace_input }}" >> $GITHUB_ENV
+          echo "CONFIGURATION=${{ github.event.inputs.configuration }}" >> $GITHUB_ENV
+          echo "SDK=${{ github.event.inputs.sdk }}" >> $GITHUB_ENV
+          echo "EXPORT_NAME=${{ github.event.inputs.export_name }}" >> $GITHUB_ENV
+
+      - name: Optional: Install CocoaPods (if Podfile exists)
+        if: ${{ env.PROJECT_PATH && (contains(ne(github.event.head_commit.message, ''), true) || true) }} # noop guard to allow conditional check inside script
+        run: |
+          set -e
+          if [ -f "${PROJECT_PATH}/Podfile" ] || [ -f "Podfile" ]; then
+            echo "Podfile detected — installing CocoaPods dependencies"
+            sudo gem install cocoapods || true
+            cd "${PROJECT_PATH}" || true
+            pod install || true
+            cd -
+          else
+            echo "No Podfile found — skipping pod install"
+          fi
+
+      - name: Build .app without code signing
+        run: |
+          set -euo pipefail
+          echo "Building scheme: ${SCHEME}"
+          BUILD_DIR="$(pwd)/build"
+          # Decide whether to use workspace or project
+          if [ -n "${WORKSPACE_INPUT}" ]; then
+            echo "Using workspace: ${WORKSPACE_INPUT}"
+            xcodebuild -workspace "${WORKSPACE_INPUT}" \
+                       -scheme "${SCHEME}" \
+                       -configuration "${CONFIGURATION}" \
+                       -sdk "${SDK}" \
+                       BUILD_DIR="${BUILD_DIR}" \
+                       clean build \
+                       CODE_SIGNING_ALLOWED=NO \
+                       CODE_SIGN_IDENTITY="" \
+                       CODE_SIGNING_REQUIRED=NO
+          else
+            # try to auto-detect workspace first
+            found_ws="$(find "${PROJECT_PATH}" -maxdepth 2 -name '*.xcworkspace' -print -quit || true)"
+            if [ -n "${found_ws}" ]; then
+              echo "Auto-detected workspace: ${found_ws}"
+              xcodebuild -workspace "${found_ws}" \
+                         -scheme "${SCHEME}" \
+                         -configuration "${CONFIGURATION}" \
+                         -sdk "${SDK}" \
+                         BUILD_DIR="${BUILD_DIR}" \
+                         clean build \
+                         CODE_SIGNING_ALLOWED=NO \
+                         CODE_SIGN_IDENTITY="" \
+                         CODE_SIGNING_REQUIRED=NO
+            else
+              # fallback to .xcodeproj
+              found_proj="$(find "${PROJECT_PATH}" -maxdepth 2 -name '*.xcodeproj' -print -quit || true)"
+              if [ -n "${found_proj}" ]; then
+                echo "Auto-detected project: ${found_proj}"
+                xcodebuild -project "${found_proj}" \
+                           -scheme "${SCHEME}" \
+                           -configuration "${CONFIGURATION}" \
+                           -sdk "${SDK}" \
+                           BUILD_DIR="${BUILD_DIR}" \
+                           clean build \
+                           CODE_SIGNING_ALLOWED=NO \
+                           CODE_SIGN_IDENTITY="" \
+                           CODE_SIGNING_REQUIRED=NO
+              else
+                echo "::error ::No .xcworkspace or .xcodeproj found in ${PROJECT_PATH}. Exiting."
+                exit 1
+              fi
+            fi
+          fi
+
+      - name: Locate built .app
+        id: find_app
+        run: |
+          set -e
+          # Try common build output locations
+          BUILD_DIR="$(pwd)/build"
+          echo "Searching for .app inside ${BUILD_DIR}"
+          APP_PATH="$(find "${BUILD_DIR}" -type d -name "*.app" -print -quit || true)"
+          if [ -z "${APP_PATH}" ]; then
+            # try the legacy Products directory
+            APP_PATH="$(find "$(pwd)/build/Release-iphoneos" -type d -name "*.app" -print -quit || true)" || true
+          fi
+          if [ -z "${APP_PATH}" ]; then
+            echo "::error ::Could not find .app in build output."
+            exit 1
+          fi
+          echo "Found app: ${APP_PATH}"
+          echo "APP_PATH=${APP_PATH}" >> $GITHUB_OUTPUT
+
+      - name: Package unsigned .ipa
+        run: |
+          set -e
+          APP_PATH="${{ steps.find_app.outputs.APP_PATH }}"
+          IPA_NAME="${EXPORT_NAME}.ipa"
+          echo "Packaging ${APP_PATH} -> ${IPA_NAME} (unsigned)"
+          TMPDIR="$(mktemp -d)"
+          PAYLOAD="${TMPDIR}/Payload"
+          mkdir -p "${PAYLOAD}"
+          cp -a "${APP_PATH}" "${PAYLOAD}/"
+          pushd "${TMPDIR}" >/dev/null
+          /usr/bin/zip -qry "${IPA_NAME}" Payload
+          popd >/dev/null
+          mkdir -p ./artifacts
+          mv "${TMPDIR}/${IPA_NAME}" ./artifacts/
+          echo "IPA created at ./artifacts/${IPA_NAME}"
+          ls -lah ./artifacts
+
+      - name: Upload unsigned .ipa as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-ipa
+          path: ./artifacts/*.ipa
